@@ -1,0 +1,11 @@
+
+--
+- Building process
+--
+-
+./autogen.sh
+./configure
+./make
+
+
+-

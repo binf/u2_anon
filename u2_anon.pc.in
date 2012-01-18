@@ -1,0 +1,6 @@
+Name: u2_anon
+Description: Unified2 Anonymizer
+URL: https://github.com/binf/u2_anon
+Version: 0.0.1a
+Libs: -L${libdir} -ldnet  -L/usr/lib -L/usr/local/lib 
+
