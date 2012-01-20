@@ -1,6 +1,7 @@
 ## $Id$
 AUTOMAKE_OPTIONS=foreign no-dependencies subdir-objects
-CFLAGS = -Wall 
+#CFLAGS = -Wall -ggdb
+CFLAGS = -Wall -O2
 
 bin_PROGRAMS = u2_anon
 

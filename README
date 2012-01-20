@@ -1,11 +1,64 @@
+-------------------------------------------
+| Eric Lauzon <beenph@gmail.com> (c) 2012 |
+-------------------------------------------
 
---
-- Building process
---
--
+-----------
+|IMPORTANT|
+-----------
+
+1- You will need to have lib dnet installed to compile this tool [http://libdnet.sourceforge.net/] 
+   (but if you have a rescent version of snort installed on your system, you probably already 
+   have libdnet installed.)
+
+2- If you are skilled and can make a small anonymous pig ascii art ...please submit :)
+
+-----------
+|IMPORTANT|
+-----------
+
+------
+|INFO|
+------
+
+u2_anon will not overwrite your original unified2 file, it can work and be invoked
+on each file or work in batch mode on a directory.
+
+Make sure before submitting any unified2 file you have "anonymized", to use u2spewfoo
+or other tools to verify the information you wanted to protect is gone.
+
+------
+|INFO|
+------
+
+------------------------------
+|Anonimity Level Description |
+------------------------------
+
+ [-eE:] [Anonymize Event]
+     - Will set source and destination IP's of EVENT to ipv4 - "127.0.0.1" , ipv6 "::ffff:127.0.0.1"
+
+ [-lL:] [Anonimize LinkLayer (ethernet)]
+     - Will set source mac to AA:AA:AA:AA:AA:AA and dst mac to BB:BB:BB:BB:BB:BB
+
+ [-pP:] [Anonymize Packet data]
+     - Will Zero out packet payload
+
+ [-xX:] [Anonymize Extra DATA event]
+     - Will set IP information to "loopback" and extra data "data" will be zeroed.
+
+------------------------------
+|Anonimity Level Description |
+------------------------------
+
+--------------------
+| Building process |
+--------------------
+
 ./autogen.sh
 ./configure
 ./make
 
+--------------------
+| Building process |
+--------------------
 
--

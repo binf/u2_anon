@@ -1,12 +1,25 @@
 /*
-*
-*
-*
-*
-*
-*
-*
-*
+**    u2_anon Process unified2 file and allow anonymization of different level of information 
+**    (will create new file), simplifies the sharing of unified2 files.
+**
+**    Copyright (C) <2011> Eric Lauzon <beenph@gmail.com>
+**
+**    This program is free software: you can redistribute it and/or modify
+**    it under the terms of the GNU General Public License as published by
+**    the Free Software Foundation, either version 3 of the License, or
+**    (at your option) any later version.
+**
+**    This program is distributed in the hope that it will be useful,
+**    but WITHOUT ANY WARRANTY; without even the implied warranty of
+**    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**    GNU General Public License for more details.
+**
+**    You should have received a copy of the GNU General Public License
+**    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+**
+**    u2_anon also uses code that is distributed with Snort (C) 2002-2011 Sourcefire,inc.
+**
+**
 */
 
 #ifndef _GNU_SOURCE
@@ -16,6 +29,7 @@
 
 #include <dirent.h>
 #include <fcntl.h>
+#include <fnmatch.h>
 #include <errno.h>
 
 #include <netinet/in.h>
@@ -49,9 +63,9 @@ extern int optind, opterr, optopt;
 static packetDecodeInstrumentation dInstr[DLT_MAX];
 static u2AnonConfig *u2AnonContext;
 
+
 void CleanExit(int exitVal)
 {
-    /* ADD CLEANUP CODE */
     if(u2AnonContext != NULL)
     {
 	if(u2AnonContext->inputfd)
@@ -106,7 +120,6 @@ void CleanExit(int exitVal)
 	u2AnonContext = NULL;
     }
 
-
     exit(exitVal);
 }
 
@@ -139,11 +152,9 @@ void banner(int argc,char **argv)
 /*
  *
  *
- *
  */
 void usage(void)
 {
-
     printf("\n\n"
 	   "----------------------------------------------\n"	   
 	   "|       Unified2 Anonymizer usage()          |\n"
@@ -153,15 +164,15 @@ void usage(void)
 	   "| -R:  \t[Unified2 Input Directory]\n"
 	   "| -O:  \t[Unified2 Output Directory]\n"
 	   "| -s:  \t[Unified2 File Prefix]\n"
-	   "| -L: \t[Unified2 Packet Layer type]\n"
-	   "| -dD: \t[Anonymize Data(Payload)]\n"
 	   "| -eE: \t[Anonymize Event]\n"
-	   "| -pP: \t[Anonymize Payload]\n"
+	   "| -lL: \t[Anonymize LinkLayer (ethernet)]\n"
+	   "| -pP: \t[Anonymize Packet data]\n"
+	   "| -xX: \t[Anonymize Extra DATA event]\n"
 	   "| -v:  \t[Verbose flag]\n"
 	   "| -h:  \t[Show Usage]\n"
 	   "----------------------------------------------\n"
 	   "----------------------------------------------\n\n");
-	return;
+    return;
 }
 
 /*
@@ -212,12 +223,14 @@ void printContext(u2AnonConfig *iConfig)
     }
     
     printf("| Anonymize Event [%u]\n"
-	   "| Anonymize Payload [%u]\n"
-	   "| Anonymize Packet [%u]\n"
+	   "| Anonymize Link Layer [%u]\n"
+	   "| Anonymize Packet data [%u]\n"
+	   "| Anonymize Extra Data [%u]\n"
 	   "----------------------------------------------\n\n",
 	   iConfig->verbose_flag & ANON_EVENT ,
-	   iConfig->verbose_flag & ANON_PAYLOAD,
-	   iConfig->verbose_flag & ANON_PACKET);
+	   iConfig->verbose_flag & ANON_LINK_LAYER,
+	   iConfig->verbose_flag & ANON_PACKET,
+	   iConfig->verbose_flag & ANON_EXTRA_DATA);
     
     return;
 }
@@ -308,6 +321,14 @@ int validateCmdLine(u2AnonConfig *iConf)
     /* WARNING */
     
     /* Validate arguments */
+    if((iConf->batchProcess == 1) &&
+       (iConf->u2FilePrefix == NULL))
+    {
+	printf("ERROR: [%s()], batch process was specified but no unified2 file prefix was defined \n",
+	       __FUNCTION__);
+	return 1;
+    }
+
     if(iConf->inputDirectory != NULL)
     {
 	if( (oDir=opendir(iConf->inputDirectory)) == NULL)
@@ -399,7 +420,7 @@ u2AnonConfig * parseCommandLine(int argc,char **argv)
     }
     
 
-    while( (cOpt = getopt(argc,argv,"r:R:o:O:s:L:DdEehPpv")) != -1)
+    while( (cOpt = getopt(argc,argv,"r:R:o:O:s:ElLehPpxXv")) != -1)
     {
 
 	add_leading_slash = 0;
@@ -408,20 +429,6 @@ u2AnonConfig * parseCommandLine(int argc,char **argv)
 	switch(cOpt)
 	{
 	    
-	case 'L':
-	    if(optarg != NULL)
-	    {
-		
-		printf("do something \n");	
-
-
-	    }
-            else
-            {
-		goto f_err;
-	    }
-	    break;
-
 	case 's':
             if(optarg != NULL)
             {
@@ -525,19 +532,24 @@ u2AnonConfig * parseCommandLine(int argc,char **argv)
 	    }
 	    break;
 	    
-	case 'E':
 	case 'e':
+	case 'E':
 	    rConfig->process_flag ^= (ANON_EVENT);
 	    break;
 	    
-	case 'D':
-	case 'd':
-	    rConfig->process_flag ^= (ANON_PAYLOAD);
+	case 'l':
+	case 'L':
+	    rConfig->process_flag ^= (ANON_LINK_LAYER);
 	    break;
 	    
 	case 'P':
 	case 'p':
 	    rConfig->process_flag ^= (ANON_PACKET);
+	    break;
+	    
+	case 'x':
+	case 'X':
+	    rConfig->process_flag ^= (ANON_EXTRA_DATA);
 	    break;
 	    
 	case 'H':
@@ -601,7 +613,13 @@ void sigHand(int sig)
     
     /* Do not call clean exit on sigsegv... */
     if(sig != 11)
-	CleanExit(1);
+    {
+	CleanExit(sig);
+    }
+    else
+    {
+	exit(sig);
+    }
 }
 
 void setupSignal(void)
@@ -649,7 +667,7 @@ u_int32_t u2WriteData(int fd,void *buf,ssize_t wlen)
 
 
 /* ANON FUNCTIONS */
-u_int32_t u2Anon_UNIFIED2_IDS_EVENT(char *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_IDS_EVENT(void *dptr,u_int32_t length,u_int8_t anon_level)
 {
     
     Unified2IDSEvent *cEvent = NULL;
@@ -668,18 +686,13 @@ u_int32_t u2Anon_UNIFIED2_IDS_EVENT(char *dptr,u_int32_t length,u_int8_t anon_le
 	cEvent->ip_source=htonl(INADDR_LOOPBACK);
 	cEvent->ip_destination=htonl(INADDR_LOOPBACK);
     }
-    else if(anon_level & ANON_PAYLOAD)
-    {
-	memset(cEvent,'\0',sizeof(Unified2IDSEvent));
-	cEvent->ip_source=htonl(INADDR_LOOPBACK);
-	cEvent->ip_destination=htonl(INADDR_LOOPBACK);
-    }
+
     
 
     return 0;
 }
 
-u_int32_t u2Anon_UNIFIED2_IDS_EVENT_IPV6(char *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_IDS_EVENT_IPV6(void *dptr,u_int32_t length,u_int8_t anon_level)
 {
 
     Unified2IDSEventIPv6 *cEvent = NULL;
@@ -701,16 +714,7 @@ u_int32_t u2Anon_UNIFIED2_IDS_EVENT_IPV6(char *dptr,u_int32_t length,u_int8_t an
 	cEvent->ip_destination.s6_addr32[2] = 0xffff0000;
 	cEvent->ip_destination.s6_addr32[3] = htonl(INADDR_LOOPBACK);
     }
-    else if(anon_level & ANON_PAYLOAD)
-    {
-	memset(cEvent,'\0',sizeof(Unified2IDSEventIPv6));
-	
-	cEvent->ip_source.s6_addr32[2] = 0xffff0000;
-	cEvent->ip_source.s6_addr32[3] = htonl(INADDR_LOOPBACK);
-	
-	cEvent->ip_destination.s6_addr32[2] = 0xffff0000;
-	cEvent->ip_destination.s6_addr32[3] = htonl(INADDR_LOOPBACK);
-    }
+
     
     return 0;
 }
@@ -726,7 +730,6 @@ u_int32_t Checksum(Packet *iPkt,u_int32_t pktlen)
     
     if(iPkt->iph)
     {
-
 	if(IS_IP4(iPkt))
 	{
 	    ip_checksum((void *)iPkt->iph,
@@ -752,7 +755,7 @@ cksum_err:
 }
 
 
-u_int32_t u2Anon_UNIFIED2_PACKET(char *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level)
 {
     DAQ_PktHdr_t fDAQPktHdr;
     Packet tPkt = {0};
@@ -766,6 +769,7 @@ u_int32_t u2Anon_UNIFIED2_PACKET(char *dptr,u_int32_t length,u_int8_t anon_level
     u_int32_t payload_length = 0;
 
     char *wPtr = NULL;
+
 
     if((dptr == NULL) ||
        (length == 0))
@@ -813,73 +817,169 @@ u_int32_t u2Anon_UNIFIED2_PACKET(char *dptr,u_int32_t length,u_int8_t anon_level
 	return 1;
     }
 
-
-    if(tPkt.eh)
+    
+    if( (anon_level & ANON_LINK_LAYER) && 
+	(tPkt.eh != NULL))
     {
 	memcpy(&tPkt.eh->ether_dst,&d_src_eth,(sizeof(u_int8_t) * 6));
 	memcpy(&tPkt.eh->ether_src,&d_dst_eth,(sizeof(u_int8_t) * 6));
     }
-
     
-    /* check anon level ...etc */
-    /* We check if we have a portscan first... */
-    if(( ((tPkt.iph == NULL) && (tPkt.inner_iph != NULL)) &&
-	 ((tPkt.ip4h == NULL)) && (tPkt.inner_iph != NULL)))
+    
+    if((anon_level & ANON_PACKET))
     {
-	if(tPkt.inner_iph->ip_proto == 255)
+	/* check anon level ...etc */
+	/* We check if we have a portscan first... */
+	if(( ((tPkt.iph == NULL) && (tPkt.inner_iph != NULL)) &&
+	     ((tPkt.ip4h == NULL)) && (tPkt.inner_iph != NULL)))
 	{
-	    memcpy((struct in_addr *)&tPkt.inner_iph->ip_src,&v4addr,sizeof(struct in_addr));
-	    memcpy((struct in_addr *)&tPkt.inner_iph->ip_dst,&v4addr,sizeof(struct in_addr));
 	    
+	    if((tPkt.inner_iph->ip_proto == 255))
+	    {
+		memcpy((struct in_addr *)&tPkt.inner_iph->ip_src,&v4addr,sizeof(struct in_addr));
+		memcpy((struct in_addr *)&tPkt.inner_iph->ip_dst,&v4addr,sizeof(struct in_addr));
+		
+		
+		payload_length = fDAQPktHdr.caplen - ((char *)tPkt.inner_iph - (char *)tPkt.pkt);
+		wPtr =(char *)(tPkt.inner_iph);
+		memset(wPtr,'\0',(sizeof(char) * payload_length));
+		return 0;
+	    }
+	}
+	
+	
+	if(tPkt.ip4h != NULL)
+	{
+	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_src,&v6addr,sizeof(sfip_t));
+	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_dst,&v6addr,sizeof(sfip_t));
 	    
-	    payload_length = fDAQPktHdr.caplen - ((char *)tPkt.inner_iph - (char *)tPkt.pkt);
-	    wPtr =(char *)(tPkt.inner_iph);
-	    memset(wPtr,'\0',(sizeof(char) * payload_length));
-	    return 0;
 	}
-    }
-    
-    
-    if(tPkt.ip4h != NULL)
-    {
-	memcpy((struct sfip_t *)&tPkt.ip4h->ip_src,&v6addr,sizeof(sfip_t));
-	memcpy((struct sfip_t *)&tPkt.ip4h->ip_dst,&v6addr,sizeof(sfip_t));
-
-    }
-
-    if(tPkt.ip6h != NULL)
-    {
-	memcpy((struct sfip_t *)&tPkt.ip6h->ip_src,&v6addr,sizeof(sfip_t));
-	memcpy((struct sfip_t *)&tPkt.ip6h->ip_dst,&v6addr,sizeof(sfip_t));
-    }
-    
-    if(tPkt.iph != NULL)
-    {
-	memcpy((struct in_addr *)&tPkt.iph->ip_src,&v4addr,sizeof(struct in_addr));
-	memcpy((struct in_addr *)&tPkt.iph->ip_dst,&v4addr,sizeof(struct in_addr));
-    }
-    
-    
-    if( (tPkt.data != NULL) && 
-	(tPkt.pkt != NULL))
-    {
-	if( (payload_length =  fDAQPktHdr.caplen - (tPkt.data - tPkt.pkt)) > 0)
+	
+	if(tPkt.ip6h != NULL)
 	{
-	    wPtr = (char *)tPkt.data;
-	    memset(wPtr,'\0',payload_length);
+	    memcpy((struct sfip_t *)&tPkt.ip6h->ip_src,&v6addr,sizeof(sfip_t));
+	    memcpy((struct sfip_t *)&tPkt.ip6h->ip_dst,&v6addr,sizeof(sfip_t));
 	}
-    
-    
-	/* Re-generate checksum for the packet */
-	if( (Checksum(&tPkt,fDAQPktHdr.pktlen)))
+	
+	if(tPkt.iph != NULL)
 	{
-	    /* XXX */
-	    return 1;
+	    memcpy((struct in_addr *)&tPkt.iph->ip_src,&v4addr,sizeof(struct in_addr));
+	    memcpy((struct in_addr *)&tPkt.iph->ip_dst,&v4addr,sizeof(struct in_addr));
+	}
+	
+    	if(tPkt.ip4h != NULL)
+	{
+	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_src,&v6addr,sizeof(sfip_t));
+	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_dst,&v6addr,sizeof(sfip_t));
+	    
+	}
+
+	if( (tPkt.data != NULL) && 
+	    (tPkt.pkt != NULL))
+	{
+	    if( (payload_length =  fDAQPktHdr.caplen - (tPkt.data - tPkt.pkt)) > 0)
+	    {
+		wPtr = (char *)tPkt.data;
+		memset(wPtr,'\0',payload_length);
+	    }
+	    
+	    /* Re-generate checksum for the packet */
+	    if( (Checksum(&tPkt,fDAQPktHdr.pktlen)))
+	    {
+		/* XXX */
+		return 1;
+	    }
 	}
     }
     
     return 0;
 }
+
+u_int32_t u2Anon_UNIFIED2_EXTRA_DATA(void *dptr,u_int32_t length,u_int8_t anon_level)
+{
+    
+    SerialUnified2ExtraData *exDat = NULL;
+    sfip_t *v6addr = NULL;
+    u_int32_t *blob_ptr = NULL;
+
+    u_int32_t blob_length = 0;
+
+    
+    if((dptr == NULL) ||
+       (length == 0))
+    {
+	/* XXX */
+	return 1;
+    }
+    
+    /* Seem's like our event become bundled with the header ... oO  */
+    exDat =(SerialUnified2ExtraData *)((void *)dptr + (sizeof(u_int32_t) *2));
+    
+    /* DEBUG */
+    /*
+      printf("Diagnostic ..\n"
+      "Sensor_id [%u]\n"
+	   "Event_id [%u]\n"
+	   "event_seconds [%u]\n"
+	   "type [%u]\n"
+	   "data_type [%u]\n"
+	   "blob_length [%u]\n",
+	   ntohl(exDat->sensor_id),
+	   ntohl(exDat->event_id),
+	   ntohl(exDat->event_second),
+	   ntohl(exDat->type),
+	   ntohl(exDat->data_type),
+	   ntohl(exDat->blob_length));
+    */
+    /* DEBUG */
+    
+    blob_length = (length - (sizeof(SerialUnified2ExtraData) + sizeof(Unified2ExtraDataHdr)));
+    blob_ptr =(u_int32_t *)((void *)(&exDat->blob_length + 1));
+    
+    if((anon_level & ANON_EXTRA_DATA) && 
+       (blob_length > 0))
+    {
+	switch(ntohl(exDat->type))
+	{
+	    
+	case EVENT_INFO_XFF_IPV4:
+	    *blob_ptr = htonl(INADDR_LOOPBACK);
+	    break;
+	    
+	case EVENT_INFO_XFF_IPV6:
+	case EVENT_INFO_IPV6_SRC:
+	case EVENT_INFO_IPV6_DST:
+	    v6addr =(sfip_t *)blob_ptr;
+	    v6addr->ip32[0] = 0x00000000;
+	    v6addr->ip32[1] = 0x00000000;
+	    v6addr->ip32[2] = 0xffff0000;
+	    v6addr->ip32[3] = htonl(INADDR_LOOPBACK);	    
+	    break;
+	    
+	case EVENT_INFO_REVIEWED_BY:
+	case EVENT_INFO_GZIP_DATA:
+	case EVENT_INFO_SMTP_FILENAME:
+	case EVENT_INFO_SMTP_MAILFROM:
+	case EVENT_INFO_SMTP_RCPTTO:
+	case EVENT_INFO_SMTP_EMAIL_HDRS:
+	case EVENT_INFO_HTTP_URI:
+	case EVENT_INFO_HTTP_HOSTNAME:
+	case EVENT_INFO_JSNORM_DATA:
+	    memset(blob_ptr,'\0',blob_length);
+	    break;
+	    
+	default:
+	    printf("WARNING: Unknown EXTRADATA type [%u], ignoring... \n",
+		   ntohl(exDat->type));
+	    break;
+	    
+	}
+    }
+    
+    return 0;
+}
+
+
 /* ANON FUNCTIONS */
 
 
@@ -890,7 +990,7 @@ u_int32_t u2Anon_UNIFIED2_PACKET(char *dptr,u_int32_t length,u_int8_t anon_level
 **
 **
 */
-u_int32_t u2Anonymize(char *dptr,u_int32_t event_type,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anonymize(void *dptr,u_int32_t event_type,u_int32_t length,u_int8_t anon_level)
 {
     if(dptr == NULL)
     {
@@ -930,7 +1030,7 @@ u_int32_t u2Anonymize(char *dptr,u_int32_t event_type,u_int32_t length,u_int8_t 
 	break;
 	
     case UNIFIED2_EXTRA_DATA:
-	return 0; /* for now */
+	return u2Anon_UNIFIED2_EXTRA_DATA(dptr,length,anon_level);
 	break;
 	
     default:
@@ -950,17 +1050,16 @@ u_int32_t u2Anonymize(char *dptr,u_int32_t event_type,u_int32_t length,u_int8_t 
  *  If we encounter a partial event read , 
  *  we set rem_length
  */
-u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_length)
+u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_length,u_int32_t *pRecordCount)
 {
     Serial_Unified2_Header *event_header = NULL;    
-    Serial_Unified2IDSEvent_legacy *leg_ass = NULL;
-    Serial_Unified2Packet *pkt_ass = NULL;
     
     char *cbuf = NULL;
     char *tbuf = NULL;
     ssize_t buf_pos = 0;
     
     u_int32_t processing_state = 0;
+
 
     ssize_t clen;
     ssize_t leftover = 0;
@@ -991,7 +1090,8 @@ u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_le
 	    
 	    buf_pos += sizeof(Serial_Unified2_Header);
 	    processing_state = UNIFIED2_EVENT_STATE;
-	    
+
+
 	    if( u2WriteData(iConf->outputfd,event_header,sizeof(Serial_Unified2_Header)))
 	    {
 		/* XXX */
@@ -1001,17 +1101,6 @@ u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_le
 	    
 	case UNIFIED2_EVENT_STATE:
 	    
-	    /* DEBUG */
-	    // printf("Got an event of type [%u] of length [%u] \n",
-	    // ntohl(event_header->type),
-	    // ntohl(event_header->length));
-	    
-	    // printf("read_size [%u] buf_pos [%u] event len [%u] \n",
-	    // read_size,
-	    // buf_pos,
-	    // ntohl(event_header->length));
-	    /* DEBUG */
-	    
 	    tbuf = (cbuf + buf_pos);
 	    clen = ntohl(event_header->length);
 	    buf_pos += clen;
@@ -1019,11 +1108,12 @@ u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_le
 	    if(u2Anonymize(tbuf,
 			   ntohl(event_header->type),
 			   clen,
-		           iConf->process_flag))
+			   iConf->process_flag))
 	    {
 		/* XXX */
 		return 1;
 	    }
+	    
 	    
 	    if( u2WriteData(iConf->outputfd,tbuf, clen))
 	    {
@@ -1032,6 +1122,8 @@ u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_le
 	    }	  
 	    
 	    processing_state = EVENT_HEADER_STATE;
+	    
+	    *pRecordCount=*pRecordCount+1;
 	    
 	    if( (buf_pos + sizeof(Serial_Unified2_Header)) > read_size)
 	    {
@@ -1061,7 +1153,7 @@ set_bytes:
 ** 
 **
 */
-u_int32_t u2ProcessLoop(u2AnonConfig *iConf)
+u_int32_t u2ProcessLoop(u2AnonConfig *iConf,u_int32_t *pRecordCount)
 {
     ssize_t current_offset = 0;
     ssize_t read_offset = 0;
@@ -1100,7 +1192,7 @@ u_int32_t u2ProcessLoop(u2AnonConfig *iConf)
 	
 	current_offset += read_size;	    
 	
-	if( (u2ProcessBuffer(iConf,read_size,&rem_length)))
+	if( (u2ProcessBuffer(iConf,read_size,&rem_length,pRecordCount)))
 	{
 	    /* XXX */
 	    return 1;
@@ -1226,6 +1318,8 @@ u_int32_t u2WriteTest(u2AnonConfig *iConf,char *inputFile,char *outputFile)
 u_int32_t ProcessUnified2File(u2AnonConfig *iConf,char *inputFile,char *outputFile)
 {
     
+    u_int32_t record_count = 0;
+    
     if( (iConf == NULL) ||
 	(inputFile == NULL) ||
 	(outputFile == NULL))
@@ -1274,7 +1368,7 @@ u_int32_t ProcessUnified2File(u2AnonConfig *iConf,char *inputFile,char *outputFi
     }
     
     /* process records */
-    if( u2ProcessLoop(iConf))
+    if( u2ProcessLoop(iConf,&record_count))
     {
 	/* XXX */
 	printf("ERROR: [%s()], Error Processing a unified2 Record, bailing \n",
@@ -1282,18 +1376,60 @@ u_int32_t ProcessUnified2File(u2AnonConfig *iConf,char *inputFile,char *outputFi
 	return 1;
     }
     
+
+    printf("Finished processing [%u] records from [%s] to [%s] \n",
+	   record_count,
+	   inputFile,
+	   outputFile);
+	
+
     
     return 0;
 }
 
+
+const char *u2AnonGetFilePrefix(void)
+{
+    if(u2AnonContext != NULL)
+    {
+	return u2AnonContext->u2FilePrefix;
+    }
+    
+    return NULL;
+}
+
+
+int dirFilter(const struct dirent *inDirEntry)
+{
+    if(inDirEntry == NULL)
+    {
+	/* XXX */
+	return 0;
+    }
+    
+    if(inDirEntry->d_type != DT_REG)
+    {
+	return 0;
+    }
+    
+    if(strncmp(u2AnonGetFilePrefix(),inDirEntry->d_name,strlen(u2AnonGetFilePrefix())) == 0)
+    {
+	return 1;
+    }
+    
+    return 0;
+}
 
 u_int32_t fileOperation(u2AnonConfig *iConf)
 {
     char *outputFile = NULL;
     char *inputFile = NULL;
     char *basenameRef = NULL; /* Pointer in basenameHolder buffer */
-
     char basenameHolder[PATH_MAX] = {0}; /* Used to get filename to create an output file name if only an output dir is created */
+
+    struct dirent **u2ProcessList = NULL;
+    u_int32_t num_dir;
+    u_int32_t x;
 
     if(iConf == NULL)
     {
@@ -1314,19 +1450,42 @@ u_int32_t fileOperation(u2AnonConfig *iConf)
     if(iConf->batchProcess)
     {
 	/* Read dir */
-        /* get file */
-	/* while(Read)
-	   {	
-	   memset(inputFile,'\0',(PATH_MAX));
-	   memset(outputFile,'\0',(PATH_MAX));
-	   memset(basenameHolder,'\0',(PATH_MAX));
-	   if( (ProcessUnified2File(input,output,flag)) == NULL)
-	   {
-	   return 1;
-	   }
-	   
-	   }
-	*/
+	if( (num_dir = scandir(iConf->inputDirectory,&u2ProcessList,
+			       dirFilter,
+			       &alphasort)) <0)
+	{
+	    /* XXX */
+	    perror("scandir");
+	    return 1;
+	}
+	
+	for(x=0 ; x < num_dir ; x++)
+	{
+	    memset(inputFile,'\0',(PATH_MAX));
+	    memset(outputFile,'\0',(PATH_MAX));
+	    
+	    snprintf(inputFile,PATH_MAX,"%s%s",
+		     iConf->inputDirectory,
+		     u2ProcessList[x]->d_name);		
+	    
+	    snprintf(outputFile,PATH_MAX,"%s%s",
+		     iConf->outputDirectory,
+		     u2ProcessList[x]->d_name);		
+	    
+	    if( (ProcessUnified2File(iConf,inputFile,outputFile)))
+	    {
+		/* XXX */
+		goto f_err;
+		return 1;
+	    }
+	}
+	
+	for(x = 0 ; x < num_dir ; x++)
+	{
+	    free(u2ProcessList[x]);
+	    u2ProcessList[x] = NULL;
+	}
+	free(u2ProcessList);
     }
     else
     {
@@ -1365,24 +1524,33 @@ u_int32_t fileOperation(u2AnonConfig *iConf)
 	    /* XXX */
 	  return 1;
 	}
+    
     }
-    
-    
-    if(outputFile != NULL)
-    {
-        free(outputFile);
-	outputFile = NULL;
-    }
-    
-    if(inputFile != NULL)
-    {
-        free(inputFile);
-	inputFile= NULL;
-    }
-    
-    return 0;
 
- f_err:
+     if(outputFile != NULL)
+     {
+	 free(outputFile);
+	 outputFile = NULL;
+     }
+
+     if(inputFile != NULL)
+     {
+	 free(inputFile);
+	 inputFile= NULL;
+     }
+     
+     return 0;
+
+f_err:
+     if(u2ProcessList != NULL)
+     {
+	 for(x = 0 ; x < num_dir ; x++)
+	 {
+	     free(u2ProcessList[x]);
+	     u2ProcessList[x] = NULL;
+	 }
+	 free(u2ProcessList);
+     }
 
      if(outputFile != NULL)
      {

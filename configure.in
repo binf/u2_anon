@@ -1,7 +1,7 @@
 AC_INIT
 
 PACKAGE=u2_anon
-VERSION=0.0.1a
+VERSION=v0.9.0b
 
 AM_INIT_AUTOMAKE($PACKAGE, $VERSION)
 
@@ -47,8 +47,23 @@ AC_CHECK_HEADERS([ \
     unistd.h \
 ])
 
-AC_CHECK_LIB(dnet, ip_checksum)
-AC_CHECK_LIB(dnet, ip_checksum6)
+AC_CHECK_LIB(dnet, ip_checksum,,IP_CKSUM)
+AC_CHECK_LIB(dnet, ip6_checksum,,IP6_CKSUM)
+
+if test "$ip_checksum"  = "xno" ; then
+   echo ""
+   echo "Can't find ip_checksum() in libdnet"
+   echo ""    
+   exit 1     
+fi
+
+if test "$ip6_checksum"  = "xno" ; then
+   echo ""
+   echo "Can't find ip6_checksum() in libdnet"
+   echo ""
+   exit 1
+fi
+
 
 AC_CHECK_SIZEOF([char])
 AC_CHECK_SIZEOF([short])
@@ -59,7 +74,6 @@ AC_CHECK_SIZEOF([unsigned int])
 AC_CHECK_SIZEOF([unsigned long int])
 AC_CHECK_SIZEOF([unsigned long long int])
 
-INCLUDES='-I$(top_srcdir)/src'
 
 AC_PROG_INSTALL
 AC_CONFIG_FILES([ \
@@ -67,8 +81,3 @@ u2_anon.pc \
 Makefile \
 src/Makefile])
 AC_OUTPUT
-
-
-
-
-

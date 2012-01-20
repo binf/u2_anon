@@ -1,0 +1,8 @@
+--------
+| TODO |
+--------
+
+v0.9.0b
+- Add some verbosity  
+- Add some flexibility for (src/dst) replacement, add option to enable "random" data instead of zero padding.
+- Cleanup the code a bit, split some file add some stats?

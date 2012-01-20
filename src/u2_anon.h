@@ -1,12 +1,26 @@
 /*
- *
- *
- *
- *
- *
- *
- */
-
+**    u2_anon Process unified2 file and allow anonymization of different level of information 
+**    (will create new file), simplifies the sharing of unified2 files.
+**
+**    Copyright (C) <2011> Eric Lauzon <beenph@gmail.com>
+**
+**    This program is free software: you can redistribute it and/or modify
+**    it under the terms of the GNU General Public License as published by
+**    the Free Software Foundation, either version 3 of the License, or
+**    (at your option) any later version.
+**
+**    This program is distributed in the hope that it will be useful,
+**    but WITHOUT ANY WARRANTY; without even the implied warranty of
+**    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+**    GNU General Public License for more details.
+**
+**    You should have received a copy of the GNU General Public License
+**    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+**
+**    u2_anon also uses code that is distributed with Snort (C) 2002-2011 Sourcefire,inc.
+**
+**
+*/
 
 #ifndef __U2_ANON_H__
 #define __U2_ANON_H__
@@ -16,22 +30,28 @@
 
 #define ANON_STARTUP_ARG_COUNT 2 /* (input/output) */
 
+
+/* NOTE: -elz Will need better def's of this */
 #define DEBUG_LOW  1
 #define DEBUG_MED  2
 #define DEBUG_HIGH 3
 
-#define ANON_EVENT   0x01
-#define ANON_PACKET  0x02
-#define ANON_PAYLOAD 0x04
+/* NOTE: -elz This will be redone before official release */
+#define ANON_EVENT      0x01
+#define ANON_LINK_LAYER 0x02
+#define ANON_PACKET     0x04
+#define ANON_EXTRA_DATA 0x10
 
 
 /* DLTMAX = DLT_IPV6 + 1 ) */
 #define DLT_MAX DLT_IPV6 + 1
 
+/* Default */
 u_int8_t d_src_eth[6] = {0xAA,0xAA,0xAA,0xAA,0xAA,0xAA};
 u_int8_t d_dst_eth[6] = {0xBB,0xBB,0xBB,0xBB,0xBB,0xBB}; 
+/* Default */
 
-/* Used for automatic decode caller. like grinder for snort ...*/
+/* Used for automatic decoder caller, like grinder for snort ...*/
 typedef struct _packetDecodeInstrumentation
 {
     void (*decodePtr)(Packet *, const DAQ_PktHdr_t*, const uint8_t *);
@@ -40,6 +60,7 @@ typedef struct _packetDecodeInstrumentation
 
 #define EVENT_HEADER_STATE 0
 #define UNIFIED2_EVENT_STATE 1
+
 
 #define WRITE_BUFFER_DEFAULT_LENGTH  (IP_MAXPACKET + MAX_XFF_WRITE_BUF_LENGTH) /* Maximum u2 event size + max packet size */
 
@@ -78,40 +99,6 @@ typedef struct _u2AnonConfig
 
 
 } u2AnonConfig;
-
-
-
-/* pseudo header for checksum calc */
-/* Renamed to avoid define colision */
-typedef struct __pseudoheader6
-{
-    uint32_t sip[4], dip[4];
-    uint8_t  zero;
-    uint8_t  protocol;
-    uint16_t len;
-} csum_pheader6;
-
-typedef struct __pseudoheader
-{
-    uint32_t sip, dip;
-    uint8_t  zero;
-    uint8_t  protocol;
-    uint16_t len;
-}csum_pheader;
- 
-/* pseudo header for checksum calc.*/
-
-
-/* From snort util.h */
-#define COPY4(x, y) \
-    x[0] = y[0]; x[1] = y[1]; x[2] = y[2]; x[3] = y[3];
-
-#define COPY16(x,y) \
-    x[0] = y[0]; x[1] = y[1]; x[2] = y[2]; x[3] = y[3]; \
-    x[4] = y[4]; x[5] = y[5]; x[6] = y[6]; x[7] = y[7]; \
-    x[8] = y[8]; x[9] = y[9]; x[10] = y[10]; x[11] = y[11]; \
-    x[12] = y[12]; x[13] = y[13]; x[14] = y[14]; x[15] = y[15];
-/* From snort util.h */
 
 
 #endif /* __U2_ANON_H__ */

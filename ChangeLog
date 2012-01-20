@@ -1,0 +1,14 @@
+- 23/03/12 - Eric Lauzon <beenph@gmail.com>
+
+Beta Rel. v0.9.0b
+=======
+
+-Added Exta Data support
+-Added batch mode
+-Fixed Anonymization level
+
+Those EXTRADATA Devent should be anonymized but they are untested:
+    EVENT_INFO_XFF_IPV4
+    EVENT_INFO_XFF_IPV6
+    EVENT_INFO_IPV6_SRC
+    EVENT_INFO_IPV6_DST
