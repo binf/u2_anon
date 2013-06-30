@@ -28,6 +28,19 @@
 #include "decode.h"
 #include "Unified2_common.h"
 
+#define U2ANON_NAME "u2_anon"
+#define U2ANON_MAJOR 0
+#define U2ANON_MINOR 9
+#define U2ANON_REVISION 1
+#define U2ANON_BUILDREV 2
+
+
+#define str(s) #s
+#define xstr(s) str(s)
+
+#define U2ANON_STRING xstr(U2ANON_NAME U2ANON_MAJOR.U2ANON_MINOR.U2ANON_REVISION rev U2ANON_BUILDREV)
+
+
 #define ANON_STARTUP_ARG_COUNT 2 /* (input/output) */
 
 
@@ -94,6 +107,11 @@ typedef struct _u2AnonConfig
     
     struct stat inputStat;
     struct stat outputStat;
+
+    u_short v4_anonmask_enabled;
+    u_short v6_anonmask_enabled;
+    struct in_addr  v4_anonmask;
+    struct in6_addr v6_anonmask;
 
     Packet pkt;
 

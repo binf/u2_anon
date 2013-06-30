@@ -32,6 +32,7 @@
 #include <fnmatch.h>
 #include <errno.h>
 
+#include <arpa/inet.h>
 #include <netinet/in.h>
 #include <netinet/ip6.h>
 #include <signal.h>
@@ -40,6 +41,7 @@
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 /* 
@@ -128,21 +130,41 @@ void banner(int argc,char **argv)
 {
     int x = 0;
 
-    printf("----------------------------------------------\n"
-	   "|        Unified2 Anonymizer                 |\n"
-	   "|        Eric Lauzon <beenph@gmail.com> 2011 |\n"
-	   "----------------------------------------------\n");
-    
+    printf("\n\n "
+	   "  -------------------------------------\n"
+	   "  /\t     [%s]       \\\n"
+	   "-------------------------------------------\n"
+	   "/      \\v                          v/       \\ \n"
+	   "|    /l./         WE ARE PIGS        \\.l\\    |\n"
+	   "|   /l;                ?               ;l\\   |\n"
+	   "|  /l./          _____________         \\.l\\  |\n"
+	   "| \\l;/          |. /       \\ .|         \\;l/ |\n"
+	   "| lv\\l/         |_/         \\_|        \\l/vl |\n"
+	   "| \\;./          |    () ()    |         \\.;/ |\n"
+	   "|  \\l./         |             |         \\.l/ | \n"
+	   "|   l;/         |   ( 0 0 )   |        \\;l   | \n"
+	   "|    \\l./       |             |      \\.l/    | \n"
+	   "|     \\l;/ /     \\___________/     \\ \\;l/    | \n"
+	   "|       l\\l\\/                    \\/.l;/      |\n"
+	   "|         \\\\l./                \\.l//         |\n"
+	   "|           .\\l;/             \\;l/.          |\n"
+	   "|              \\\\;l/;'/l\\;./;/               |\n"
+	   "\\                                            /\n"
+	   " -------------------------------------------\n",
+	   U2ANON_STRING);
+
     if(argv != NULL)
     {
-	printf("Unified2 Anonymizer Command line: ");
+	printf("\n\n[Unified2 Anonymizer [%s] "
+	       "[Command line: ",
+	       U2ANON_STRING);
 	
 	for(x = 0; x < argc ; x++)
 	{
 	    printf(" %s ",argv[x]);
 	}
 	
-	printf("\n");
+	printf("]\n");
     }
     
     return;
@@ -159,6 +181,8 @@ void usage(void)
 	   "----------------------------------------------\n"	   
 	   "|       Unified2 Anonymizer usage()          |\n"
 	   "----------------------------------------------\n"	   
+	   "| -4:  \t[Define IPv4 Netmask for anonymity]\n"
+	   "| -6:  \t[Define IPv6 Netmask for anonymity]\n"
 	   "| -r:  \t[Unified2 Input file (single)]\n"
 	   "| -o:  \t[Unified2 Output File (single)]\n"
 	   "| -R:  \t[Unified2 Input Directory]\n"
@@ -227,10 +251,10 @@ void printContext(u2AnonConfig *iConfig)
 	   "| Anonymize Packet data [%u]\n"
 	   "| Anonymize Extra Data [%u]\n"
 	   "----------------------------------------------\n\n",
-	   iConfig->verbose_flag & ANON_EVENT ,
-	   iConfig->verbose_flag & ANON_LINK_LAYER,
-	   iConfig->verbose_flag & ANON_PACKET,
-	   iConfig->verbose_flag & ANON_EXTRA_DATA);
+	   iConfig->process_flag & ANON_EVENT ,
+	   iConfig->process_flag & ANON_LINK_LAYER,
+	   iConfig->process_flag & ANON_PACKET,
+	   iConfig->process_flag & ANON_EXTRA_DATA);
     
     return;
 }
@@ -400,10 +424,14 @@ u2AnonConfig * parseCommandLine(int argc,char **argv)
     u2AnonConfig *rConfig = NULL;
     
     int cOpt = 0;
-    
+
+    short mask_changed = 0;
     u_int32_t add_leading_slash = 0;
     u_int32_t pathlen = 0;
-    
+
+    char lip4[16] = {0};
+    struct in_addr ipv4;
+
     
     if( (argc < ANON_STARTUP_ARG_COUNT) ||
 	(*argv == NULL))
@@ -420,7 +448,7 @@ u2AnonConfig * parseCommandLine(int argc,char **argv)
     }
     
 
-    while( (cOpt = getopt(argc,argv,"r:R:o:O:s:ElLehPpxXv")) != -1)
+    while( (cOpt = getopt(argc,argv,"r:R:o:O:s:4:6:ElLehPpxXv")) != -1)
     {
 
 	add_leading_slash = 0;
@@ -567,6 +595,78 @@ u2AnonConfig * parseCommandLine(int argc,char **argv)
 	case 'v':
 	    rConfig->verbose_flag++;
 	    break;
+
+	case '4':
+	    mask_changed = 0;
+	    strncpy(lip4,optarg,16);
+
+	    if(inet_aton(lip4,&ipv4) == 0)
+	    {
+		printf("Value [%s] for arguemnt -4 is not a valid ipv4 address \n",
+		       lip4);
+		goto f_err;
+	    }
+
+	    
+	    if(  (((ipv4.s_addr & 0xFF000000) >> 24) != 0xFF) &&
+		 (((ipv4.s_addr & 0x00FF0000)>> 16) != 0xFF) &&
+		 (((ipv4.s_addr & 0x0000FF00) >> 8) != 0xFF) &&
+		 ((ipv4.s_addr & 0xFF) != 0xFF))
+	    {
+		printf("[%s], Can't use mask [%s] \n",
+		       __FUNCTION__,
+		       lip4);
+		goto f_err;
+	    }
+	    
+	    if( ((ipv4.s_addr & 0xFF000000) >> 24) &&
+		(((ipv4.s_addr & 0xFF000000) >> 24) != 0xFF))
+	    {
+		ipv4.s_addr |= 0xFF000000;
+		mask_changed++;
+	    }
+	    
+	    if( ((ipv4.s_addr & 0x00FF0000) >> 16) &&
+		(((ipv4.s_addr & 0x00FF0000)>> 16) != 0xFF))
+	    {
+		ipv4.s_addr |= 0x00FF0000;
+		mask_changed++;
+	    }
+	    
+	    if( ((ipv4.s_addr & 0x0000FF00) >> 8) &&
+		(((ipv4.s_addr & 0x0000FF00) >> 8) != 0xFF))
+	    {
+		ipv4.s_addr |=  0x0000FF00;
+		mask_changed++;
+	    }
+	    
+	    if( (ipv4.s_addr & 0xFF) &&
+		((ipv4.s_addr & 0xFF) != 0xFF))
+	    {
+		ipv4.s_addr |= 0x000000FF;
+		mask_changed++;
+	    }
+	    
+	    if(mask_changed)
+	    {
+
+		printf("[%s]: Anonymising source and destination ipv4 addresses with the following mask [%s] instead of supplied argument [%s] \n",
+		       U2ANON_STRING,inet_ntoa(ipv4),
+		       lip4);
+
+	    }
+	    {
+		printf("[%s]: Anonymising source and destination ipv4 addresses with the following mask [%s] \n",
+		       U2ANON_STRING,inet_ntoa(ipv4));
+	    }
+	    rConfig->v4_anonmask_enabled = 1 ;
+	    rConfig->v4_anonmask = ipv4;
+		
+
+
+	    break;
+	case '6':
+	    break;
 	    
 	default:
 	    printf("[%s()]: Unknown option specified [%c][0x%x], bailing.... \n",
@@ -667,12 +767,13 @@ u_int32_t u2WriteData(int fd,void *buf,ssize_t wlen)
 
 
 /* ANON FUNCTIONS */
-u_int32_t u2Anon_UNIFIED2_IDS_EVENT(void *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_IDS_EVENT(u2AnonConfig *iConf,void *dptr,u_int32_t length)
 {
     
     Unified2IDSEvent *cEvent = NULL;
     
-    if((dptr == NULL) ||
+    if( (iConf == NULL) ||
+	(dptr == NULL) ||
        (length == 0))
     {
 	/* XXX */
@@ -681,24 +782,31 @@ u_int32_t u2Anon_UNIFIED2_IDS_EVENT(void *dptr,u_int32_t length,u_int8_t anon_le
     
     cEvent=(Unified2IDSEvent *)dptr;
     
-    if(anon_level & ANON_EVENT)
+    if(iConf->process_flag & ANON_EVENT)
     {
-	cEvent->ip_source=htonl(INADDR_LOOPBACK);
-	cEvent->ip_destination=htonl(INADDR_LOOPBACK);
+	if(iConf->v4_anonmask_enabled)
+	{
+	    cEvent->ip_source = cEvent->ip_source & iConf->v4_anonmask.s_addr;
+	    cEvent->ip_destination = cEvent->ip_destination & iConf->v4_anonmask.s_addr;
+	}
+	else
+	{
+	    cEvent->ip_source=htonl(INADDR_LOOPBACK);
+	    cEvent->ip_destination=htonl(INADDR_LOOPBACK);
+	}
     }
-
-    
 
     return 0;
 }
 
-u_int32_t u2Anon_UNIFIED2_IDS_EVENT_IPV6(void *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_IDS_EVENT_IPV6(u2AnonConfig *iConf,void *dptr,u_int32_t length)
 {
 
     Unified2IDSEventIPv6 *cEvent = NULL;
 
-    if((dptr == NULL) ||
-       (length == 0))
+    if( (iConf == NULL) ||
+	(dptr == NULL) ||
+	(length == 0))
     {
 	/* XXX */
 	return 1;
@@ -706,7 +814,7 @@ u_int32_t u2Anon_UNIFIED2_IDS_EVENT_IPV6(void *dptr,u_int32_t length,u_int8_t an
 
     cEvent = (Unified2IDSEventIPv6 *)dptr;
     
-    if(anon_level & ANON_EVENT)
+    if(iConf->process_flag & ANON_EVENT)
     {
 	cEvent->ip_source.s6_addr32[2] = 0xffff0000;
 	cEvent->ip_source.s6_addr32[3] = htonl(INADDR_LOOPBACK);
@@ -755,7 +863,7 @@ cksum_err:
 }
 
 
-u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_PACKET(u2AnonConfig *iConf,void *dptr,u_int32_t length)
 {
     DAQ_PktHdr_t fDAQPktHdr;
     Packet tPkt = {0};
@@ -764,15 +872,18 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
     u_int32_t link_layer_type = 0;
 
     struct in_addr v4addr = {0};
+    struct in_addr v4saddr = {0};
+    struct in_addr v4daddr = {0};
     sfip_t v6addr;
 
     u_int32_t payload_length = 0;
 
     char *wPtr = NULL;
 
-
-    if((dptr == NULL) ||
-       (length == 0))
+    
+    if( (iConf == NULL) ||
+	(dptr == NULL) ||
+	(length == 0))
     {
 	/* XXX */
 	return 1;
@@ -786,8 +897,11 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
        but for now we go straight to the point 
        and set it to loopback 
     */
-    v4addr.s_addr = htonl(INADDR_LOOPBACK);
-
+    if(!iConf->v4_anonmask_enabled)
+    {
+	v4addr.s_addr = htonl(INADDR_LOOPBACK);
+    }
+   
     memset(&v6addr,'\0',sizeof(sfip_t));
     v6addr.ip.u6_addr32[2] = 0xffff0000;
     v6addr.ip.u6_addr32[3] = htonl(INADDR_LOOPBACK);
@@ -818,7 +932,7 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
     }
 
     
-    if( (anon_level & ANON_LINK_LAYER) && 
+    if( (iConf->process_flag & ANON_LINK_LAYER) && 
 	(tPkt.eh != NULL))
     {
 	memcpy(&tPkt.eh->ether_dst,&d_src_eth,(sizeof(u_int8_t) * 6));
@@ -826,18 +940,33 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
     }
     
     
-    if((anon_level & ANON_PACKET))
+    if((iConf->process_flag & ANON_PACKET))
     {
 	/* check anon level ...etc */
 	/* We check if we have a portscan first... */
 	if(( ((tPkt.iph == NULL) && (tPkt.inner_iph != NULL)) &&
 	     ((tPkt.ip4h == NULL)) && (tPkt.inner_iph != NULL)))
 	{
+	
 	    
 	    if((tPkt.inner_iph->ip_proto == 255))
 	    {
-		memcpy((struct in_addr *)&tPkt.inner_iph->ip_src,&v4addr,sizeof(struct in_addr));
-		memcpy((struct in_addr *)&tPkt.inner_iph->ip_dst,&v4addr,sizeof(struct in_addr));
+		if(!iConf->v4_anonmask_enabled)
+		{
+		    memcpy((struct in_addr *)&tPkt.inner_iph->ip_src,&v4addr,sizeof(struct in_addr));
+		    memcpy((struct in_addr *)&tPkt.inner_iph->ip_dst,&v4addr,sizeof(struct in_addr));
+		}
+		else
+		{
+		    memcpy(&v4saddr,(struct in_addr *)&tPkt.inner_iph->ip_src,sizeof(struct in_addr));
+                    memcpy(&v4daddr,(struct in_addr *)&tPkt.inner_iph->ip_dst,sizeof(struct in_addr));
+		    
+		    v4saddr.s_addr = v4saddr.s_addr & iConf->v4_anonmask.s_addr;
+		    v4daddr.s_addr = v4daddr.s_addr & iConf->v4_anonmask.s_addr;
+
+		    memcpy((struct in_addr *)&tPkt.inner_iph->ip_src,&v4saddr,sizeof(struct in_addr));
+                    memcpy((struct in_addr *)&tPkt.inner_iph->ip_dst,&v4daddr,sizeof(struct in_addr));
+		}
 		
 		
 		payload_length = fDAQPktHdr.caplen - ((char *)tPkt.inner_iph - (char *)tPkt.pkt);
@@ -848,13 +977,6 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
 	}
 	
 	
-	if(tPkt.ip4h != NULL)
-	{
-	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_src,&v6addr,sizeof(sfip_t));
-	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_dst,&v6addr,sizeof(sfip_t));
-	    
-	}
-	
 	if(tPkt.ip6h != NULL)
 	{
 	    memcpy((struct sfip_t *)&tPkt.ip6h->ip_src,&v6addr,sizeof(sfip_t));
@@ -863,15 +985,42 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
 	
 	if(tPkt.iph != NULL)
 	{
-	    memcpy((struct in_addr *)&tPkt.iph->ip_src,&v4addr,sizeof(struct in_addr));
-	    memcpy((struct in_addr *)&tPkt.iph->ip_dst,&v4addr,sizeof(struct in_addr));
+	    if(!iConf->v4_anonmask_enabled)
+	    {
+		memcpy((struct in_addr *)&tPkt.iph->ip_src,&v4addr,sizeof(struct in_addr));
+		memcpy((struct in_addr *)&tPkt.iph->ip_dst,&v4addr,sizeof(struct in_addr));
+	    }
+	    else
+	    {
+		memcpy(&v4saddr,(struct in_addr *)&tPkt.iph->ip_src,sizeof(struct in_addr));
+		memcpy(&v4daddr,(struct in_addr *)&tPkt.iph->ip_dst,sizeof(struct in_addr));
+
+		v4saddr.s_addr = v4saddr.s_addr & iConf->v4_anonmask.s_addr;
+		v4daddr.s_addr = v4daddr.s_addr & iConf->v4_anonmask.s_addr;
+
+		memcpy((struct in_addr *)&tPkt.iph->ip_src,&v4saddr,sizeof(struct in_addr));
+		memcpy((struct in_addr *)&tPkt.iph->ip_dst,&v4daddr,sizeof(struct in_addr));
+	    }
 	}
 	
     	if(tPkt.ip4h != NULL)
 	{
-	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_src,&v6addr,sizeof(sfip_t));
-	    memcpy((struct sfip_t *)&tPkt.ip4h->ip_dst,&v6addr,sizeof(sfip_t));
-	    
+	    if(!iConf->v4_anonmask_enabled)
+	    {
+		memcpy((struct sfip_t *)&tPkt.ip4h->ip_src,&v4addr,sizeof(sfip_t));
+		memcpy((struct sfip_t *)&tPkt.ip4h->ip_dst,&v4addr,sizeof(sfip_t));
+	    }
+	    else
+	    {
+		memcpy(&v4saddr,(struct in_addr *)&tPkt.ip4h->ip_src,sizeof(struct in_addr));
+                memcpy(&v4daddr,(struct in_addr *)&tPkt.ip4h->ip_dst,sizeof(struct in_addr));
+
+                v4saddr.s_addr = v4saddr.s_addr & iConf->v4_anonmask.s_addr;
+                v4daddr.s_addr = v4daddr.s_addr & iConf->v4_anonmask.s_addr;
+		
+                memcpy((struct in_addr *)&tPkt.ip4h->ip_src,&v4saddr,sizeof(struct in_addr));
+                memcpy((struct in_addr *)&tPkt.ip4h->ip_dst,&v4daddr,sizeof(struct in_addr));
+	    }
 	}
 
 	if( (tPkt.data != NULL) && 
@@ -895,7 +1044,7 @@ u_int32_t u2Anon_UNIFIED2_PACKET(void *dptr,u_int32_t length,u_int8_t anon_level
     return 0;
 }
 
-u_int32_t u2Anon_UNIFIED2_EXTRA_DATA(void *dptr,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anon_UNIFIED2_EXTRA_DATA(u2AnonConfig *iConf, void *dptr,u_int32_t length)
 {
     
     SerialUnified2ExtraData *exDat = NULL;
@@ -905,7 +1054,8 @@ u_int32_t u2Anon_UNIFIED2_EXTRA_DATA(void *dptr,u_int32_t length,u_int8_t anon_l
     u_int32_t blob_length = 0;
 
     
-    if((dptr == NULL) ||
+    if( (iConf == NULL) ||
+	(dptr == NULL) ||
        (length == 0))
     {
 	/* XXX */
@@ -936,7 +1086,7 @@ u_int32_t u2Anon_UNIFIED2_EXTRA_DATA(void *dptr,u_int32_t length,u_int8_t anon_l
     blob_length = (length - (sizeof(SerialUnified2ExtraData) + sizeof(Unified2ExtraDataHdr)));
     blob_ptr =(u_int32_t *)((void *)(&exDat->blob_length + 1));
     
-    if((anon_level & ANON_EXTRA_DATA) && 
+    if((iConf->process_flag & ANON_EXTRA_DATA) && 
        (blob_length > 0))
     {
 	switch(ntohl(exDat->type))
@@ -990,9 +1140,10 @@ u_int32_t u2Anon_UNIFIED2_EXTRA_DATA(void *dptr,u_int32_t length,u_int8_t anon_l
 **
 **
 */
-u_int32_t u2Anonymize(void *dptr,u_int32_t event_type,u_int32_t length,u_int8_t anon_level)
+u_int32_t u2Anonymize(u2AnonConfig *iConf, void *dptr,u_int32_t event_type,u_int32_t length)
 {
-    if(dptr == NULL)
+    if((iConf == NULL) ||
+       (dptr == NULL))
     {
 	/* XXX */
 	return 1;
@@ -1002,7 +1153,7 @@ u_int32_t u2Anonymize(void *dptr,u_int32_t event_type,u_int32_t length,u_int8_t 
     {
 	
     case UNIFIED2_PACKET:
-	return u2Anon_UNIFIED2_PACKET(dptr,length,anon_level);
+	return u2Anon_UNIFIED2_PACKET(iConf,dptr,length);
 	break;
 	
     case UNIFIED2_IDS_EVENT:
@@ -1014,7 +1165,7 @@ u_int32_t u2Anonymize(void *dptr,u_int32_t event_type,u_int32_t length,u_int8_t 
 	   we could if needed for NG elements, actually plug its own function 
 	   (and the same could go if we would like to anon other sub specific fields..)
 	*/
-	return u2Anon_UNIFIED2_IDS_EVENT(dptr,length,anon_level);
+	return u2Anon_UNIFIED2_IDS_EVENT(iConf,dptr,length );
 	break;
 	
     case UNIFIED2_IDS_EVENT_IPV6_MPLS:
@@ -1026,11 +1177,11 @@ u_int32_t u2Anonymize(void *dptr,u_int32_t event_type,u_int32_t length,u_int8_t 
 	   we could if needed for NG elements, actually plug its own function 
 	   (and the same could go if we would like to anon other sub specific fields..)
 	*/
-	return u2Anon_UNIFIED2_IDS_EVENT_IPV6(dptr,length,anon_level);
+	return u2Anon_UNIFIED2_IDS_EVENT_IPV6(iConf,dptr,length);
 	break;
 	
     case UNIFIED2_EXTRA_DATA:
-	return u2Anon_UNIFIED2_EXTRA_DATA(dptr,length,anon_level);
+	return u2Anon_UNIFIED2_EXTRA_DATA(iConf,dptr,length);
 	break;
 	
     default:
@@ -1105,10 +1256,10 @@ u_int32_t u2ProcessBuffer(u2AnonConfig * iConf,ssize_t read_size,ssize_t *rem_le
 	    clen = ntohl(event_header->length);
 	    buf_pos += clen;
 	    
-	    if(u2Anonymize(tbuf,
+	    if(u2Anonymize(iConf,
+			   tbuf,
 			   ntohl(event_header->type),
-			   clen,
-			   iConf->process_flag))
+			   clen))
 	    {
 		/* XXX */
 		return 1;
